@@ -5,7 +5,7 @@
 This is a Shift-reduce parser that can do the proper operation order for the natural arithmetic progression with a visual tree render.
 
 
-![demo](/images.png?raw=true "Optional Title")
+![demo](images/snapshot.png?raw=true "Optional Title")
 
 ### Usage ###
 
