@@ -15,7 +15,6 @@ This is a Shift-reduce parser that can do the proper operation order for the nat
 
 ### References ###
 
-```
 	[parser](http://en.wikipedia.org/wiki/Shift-reduce_parser)
-```
+
 	
