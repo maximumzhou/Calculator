@@ -1,0 +1,834 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<meta charset=UTF-8 />
+<head>
+<title></title>
+<style>
+	.circle{position:absolute;height:50px;width:50px;background-color:#eee;border-radius: 50%;line-height:50px;text-align:center;border-style: solid;  border-width: 2px;  border-color: #000;overflow:hidden;}
+	.line{position:absolute;height:2px;background-color:#000;-webkit-transform-origin:0% 100%;}
+
+</style>
+</head>
+
+<body>
+    <script>
+
+		//1.初始
+		//2.取符号
+		//3.Build
+		//4.求值
+		//5.绘图和操作
+
+		var defaultInput = '2*max(3,4,pow(3,3))*4+ceil(2+random()*15)';
+		var nextFunc;
+		var tokens;
+		var tree;
+		var cNode;
+		var step;
+
+		
+		function init(){
+			clear();
+			tokens = null;
+			tree = {root:null};
+			nextFunc = parse;
+			cNode = null;
+			step = 0;
+			enableInput(true);
+		}		
+
+
+		function getTokens(expr){
+
+			function getToken() {
+				expr = expr.trim();
+				var c;
+				var f = start;
+				var token;
+				var str;
+				function start() {
+					c = expr.substr(0, 1);
+					expr = expr.substr(1);
+					switch (c) {
+						case '+':
+						case '*':
+						case '-':
+						case '/':
+						case '(':
+						case ')':
+						case ',':
+							f = null;
+							token = c;
+							break;
+						default:
+							f = readWord;
+							str = c;
+							break;
+					}
+				}
+
+				function readWord() {
+					c = expr.substr(0, 1);
+					var sub = true;
+					switch (c) {
+						case '+':
+						case '*':
+						case '-':
+						case '/':
+						case ')':
+						case '(':
+						case ',':
+						case ' ':
+							sub = false;
+							f = processStrNode();
+							break;
+						default:
+							str += c;
+							break;
+					}
+					if (sub) {
+						expr = expr.substr(1);
+					}
+				}
+
+				function processStrNode() {
+					f = null;
+					if(isNaN(str)){
+						token = str;
+					}else{
+						token = parseInt(str);
+					}
+				}
+
+
+
+
+			   
+
+				while (expr&&f) {
+					f();
+				}
+				if (f==readWord)
+				{
+					f = processStrNode();
+				}
+				if (f) { f();}
+
+				return token;
+			}
+
+
+			var tokens = [];
+			while(expr&&expr!=''){
+				var result = getToken();
+				if(result!=null){
+					tokens.push(result);
+				}
+			}
+			return tokens;
+		}
+
+
+
+
+
+
+		function parse(){
+			enableInput(false);
+			var input = getInput();
+			if(input==null||input==''){
+				input = defaultInput;
+				setInput(input);
+			}
+			tokens = getTokens(input);
+			trace('【token】',tokens);
+			nextFunc = buildTree;
+		}
+			
+		
+		//节点：{type:类型,val:值,left:左节点,right:右节点,params:参数节点,paramsNum:参数个数,parent:父节点}
+		//类型：
+		//1.数,val,parent
+		//2.变量，val,parent
+		//3.未闭合函数,val,params,parent,paramsNum
+		//4.已闭合函数,val,params,parent
+		//5.特定二元操作符：val,left,right,parent
+
+		var ops = ['+','-','*','/'];
+		var _p = [1,1,2,2];
+		function p(op){
+			return _p[ops.indexOf(op)];
+		}
+
+		var TYPE_VAL = 'val';
+		var TYPE_VAR = 'var';
+		var TYPE_FUNC_OPEN = 'fo';
+		var TYPE_FUNC_CLOSE = 'fc';
+		var TYPE_OP = 'op';
+
+		function buildTree(){
+			if(tokens.length){
+				var token = tokens.shift();
+				if(typeof(token)=='number'){
+					cNode = {type:TYPE_VAL,val:token,parent:null};
+				}else if(ops.indexOf(token)>=0){
+					cNode = {type:TYPE_OP,val:token,parent:null};
+				}else if(token==','){
+					cNode = null;
+					checkFuncParamSplit();
+				}else if(token=='('){
+					cNode = null;
+					startFunc();
+				}else if(token==')'){
+					cNode = null;
+					closeFunc();
+				}else{
+					cNode = {type:TYPE_VAR,val:token,parent:null};
+				}
+
+				
+				insertTreeNode();
+			}
+			if(!tokens.length){
+				nextFunc = goEval;
+			}
+			trace('【build】',tree);
+			trace('【tokens】',token,tokens);
+		}
+
+		function checkFuncParamSplit(){
+			if(tree.root){
+				var rNode = getOpenFuncNode(tree.root);
+				if(rNode.type==TYPE_FUNC_OPEN){
+					rNode.paramsNum++;
+					return;
+				}
+			}
+			throw new Error('语法错误');
+		}
+
+		function startFunc(){
+			if(tree.root){
+				var rNode = getRightestNode(tree.root);
+				if(rNode){
+					switch(rNode.type){
+						case TYPE_VAL:
+						case TYPE_FUNC_CLOSE:
+							throw new Error('语法错误');
+						case TYPE_VAR:
+							rNode.type = TYPE_FUNC_OPEN;
+							rNode.params = [];
+							rNode.paramsNum = 0;
+							break;
+						case TYPE_FUNC_OPEN:
+							var newNode = {type:TYPE_FUNC_OPEN,val:null,params:[],paramsNum:0,parent:rNode};
+							rNode.params.push(newNode);
+							break;
+						case TYPE_OP:
+							if(rNode.right){
+								throw new Error('语法错误');
+							}
+							var newNode = {type:TYPE_FUNC_OPEN,val:null,params:[],paramsNum:0,parent:rNode};
+							rNode.right = newNode;
+							break;
+					}
+				}else{
+					throw new Error('语法错误');
+				}
+			}else{
+				tree.root = {type:TYPE_FUNC_OPEN,val:null,params:[],paramsNum:0,parent:null};
+			}
+			
+		}
+
+		function closeFunc(){
+			if(tree.root){
+				var rNode = getOpenFuncNode(tree.root);
+				if((!rNode)||rNode.type!=TYPE_FUNC_OPEN){
+					throw new Error('语法错误');	
+				}
+				rNode.type = TYPE_FUNC_CLOSE;
+				rNode.paramsNum = rNode.params.length;
+			}else{
+				throw new Error('语法错误');
+			}
+		}
+
+		function insertTreeNode(){
+			if(!cNode){
+				return;
+			}
+			if(!tree.root){
+				tree.root = cNode;
+			}else{
+				//插入节点，做调整
+				insertN = getInsertNode(tree.root);
+				if(!insertN){
+					throw new Error('附近有语法错误:'+cNode.val);
+					
+				}
+				//新节点和父节点的关系
+				//新节点为TYPE_VAL，TYPE_VAR，父节点只能为TYPE_FUNC_OPEN，TYPE_OP
+				//当父节点为TYPE_OP时，必须为左有值，右无值，否则出错
+				//当父节点为TYPE_FUNC_OPEN时，paramsNum和params必须一致
+				//新节点为TYPE_OP
+				//当父节点为TYPE_FUNC_OPEN时，paramsNum和params必须不一致，且最后一个参数为TYPE_VAL或TYPE_VAR
+				//当父节点为TYPE_VAL,TYPE_VAR,TYPE_FUNC_CLOSE时，替换后需要调查是否需要调整
+				//两者都为TYPE_OP时，调查是否需要调整
+				else if(cNode.type==TYPE_VAL||cNode.type==TYPE_VAR){
+					if(insertN.type==TYPE_OP){
+						if(insertN.right||insertN.left==null){
+							throw new Error('有错误');
+						}else{
+							insertN.right = cNode;
+							cNode.parent = insertN;
+						}
+					}else if(insertN.type==TYPE_FUNC_OPEN){
+						if(insertN.paramsNum==insertN.params.length){
+							cNode.parent = insertN;
+							insertN.params.push(cNode);
+						}else{
+							throw new Error('有错误');
+						}
+					}else{
+						throw new Error('有错误');
+					}
+				}else if(cNode.type==TYPE_OP){
+					if(insertN.type==TYPE_FUNC_OPEN){
+						if((insertN.paramsNum+1)==insertN.params.length){
+							var lastParamNode = insertN.params[insertN.paramsNum];
+							if(lastParamNode.type==TYPE_VAL||lastParamNode.type==TYPE_VAR){
+								insertN.params[insertN.paramsNum] = cNode;
+								cNode.parent = insertN;
+								cNode.left = lastParamNode;
+								lastParamNode.parent = cNode;
+							}else{
+								throw new Error('有错误');
+							}
+						}else{
+							throw new Error('有错误');
+						}
+					}else if([TYPE_VAL,TYPE_VAR,TYPE_FUNC_CLOSE].indexOf(insertN.type)>=0){
+						cNode.parent = insertN.parent;
+						cNode.left = insertN;
+						var parent = insertN.parent;
+						insertN.parent = cNode;
+						replaceParent(tree,cNode,insertN,parent);
+						if(parent&&parent.type==TYPE_OP){
+							if(needFix()){
+								nextFunc = fixTree;
+							}
+						}
+
+					}else if(insertN.type==TYPE_OP){
+						if(insertN.left&&insertN.right){
+							var rightNode = insertN.right;
+							rightNode.parent = cNode;
+							cNode.left = rightNode;
+							cNode.parent = insertN;
+							insertN.right = cNode;
+							if(needFix()){
+								nextFunc = fixTree;
+							}
+						}else{
+							throw new Error('有错误');
+						}
+					}else{
+						throw new Error('有错误');
+					}
+				}
+
+
+			}
+		}
+
+		function needFix(){
+			return cNode.parent&&cNode.parent.type==TYPE_OP&&p(cNode.val)<=p(cNode.parent.val);
+		}
+
+		function replaceParent(tree,newNode,oldNode,parent){
+			if(tree.root==oldNode){
+				tree.root = newNode;
+			}else{
+				if(parent.left==oldNode){
+					parent.left = newNode;
+				}else if(parent.right==oldNode){
+					parent.right = newNode;
+				}else{
+					parent.params[parent.params.indexOf(oldNode)] = newNode;
+				}
+			}
+		}
+
+		function fixTree(){
+			var insertN = cNode.parent;
+			var parent  = insertN.parent;
+			var leftNode = cNode.left;
+			
+			leftNode.parent = insertN;
+			
+			insertN.right = leftNode;
+			insertN.parent = cNode;
+
+			cNode.parent = parent;
+			cNode.left = insertN;
+
+			replaceParent(tree,cNode,insertN,parent);
+			
+			trace('【fix】',tree);
+
+			if(!needFix()){
+				nextFunc = buildTree;
+			}
+		}
+
+		function getRightestNode(node){
+			switch(node.type){
+				case TYPE_VAL:
+				case TYPE_VAR:					
+				case TYPE_FUNC_CLOSE:
+					return node;
+				case TYPE_FUNC_OPEN:
+					for(var i in node.params){
+						var result = getRightestNode(node.params[node.params.length-i-1]);
+						if(result){
+							return result;
+						}
+					}
+					return node;
+				case TYPE_OP:
+					if(!node.right){
+						return node;
+					}else{
+						return getRightestNode(node.right);
+					}
+			}
+
+		}
+
+		function getInsertNode(node){
+			//获取右边的可插入的节点
+			switch (node.type)
+			{
+				case TYPE_VAL:
+				case TYPE_VAR:
+				case TYPE_FUNC_CLOSE:
+					return node;
+				case TYPE_FUNC_OPEN:
+					if(node.paramsNum==node.params.length){
+						return node;
+					}else{
+						return getInsertNode(node.params[node.paramsNum]);
+					}
+					return node;
+				case TYPE_OP:
+					if(!node.right){
+						return node;
+					}else{
+						if(node.right.type==TYPE_FUNC_OPEN||node.right.type==TYPE_OP){
+							return getInsertNode(node.right);
+						}else{
+							return node;
+						}
+					}
+			}
+		}
+
+		function getOpenFuncNode(node){
+			switch(node.type){
+				case TYPE_VAL:
+				case TYPE_VAR:
+				case TYPE_FUNC_CLOSE:
+					return null;
+				case TYPE_FUNC_OPEN:
+					for(var i in node.params){
+						var result = getOpenFuncNode(node.params[i]);
+						if(result){
+							return result;
+						}
+					}
+					return node;
+				case TYPE_OP:
+					if(node.right){
+						return getOpenFuncNode(node.right);
+					}
+					return null;
+			}
+		}
+
+		function getEvalNode(node){
+			switch(node.type){
+				case TYPE_VAL:
+				case TYPE_VAR:
+					return node;
+				case TYPE_FUNC_OPEN:
+					throw new Error('缺少)');
+				case TYPE_FUNC_CLOSE:
+					for(var i in node.params){
+						if(node.params[i].type!=TYPE_VAL){
+							return getEvalNode(node.params[i]);
+						}
+					}
+					return node;
+				case TYPE_OP:
+					if(node.left.type==TYPE_VAL&&node.right.type==TYPE_VAL){
+						return node;
+					}else if(node.left.type!=TYPE_VAL){
+						return getEvalNode(node.left);
+					}else if(node.right.type!=TYPE_VAL){
+						return getEvalNode(node.right);
+					}
+			}
+		}
+
+		function goEval(){
+			var node = getEvalNode(tree.root);
+			if(node.type==TYPE_FUNC_CLOSE){
+				var method = node.val;
+				var func;
+				switch(method){
+					case null:
+						func = function(a){return a};
+						break;
+					default:
+						if(Math[method]){
+							func = Math[method];
+						}else{
+							throw new Error("未定义的函数："+method);
+						}
+						
+				}
+				node.type = TYPE_VAL;
+				node.val = func.apply(null,node.params.map(function(a){return a.val;}));
+				delete node.paramsNum;
+				delete node.params;
+			}else if(node.type==TYPE_OP){
+				var l = node.left.val;
+				var r = node.right.val;
+				var v;
+				switch(node.val){
+					case '+':
+						v = l+r;
+						break;
+					case '-':
+						v = l-r;
+						break;
+					case '*':
+						v = l*r;
+						break;
+					case '/':
+						v = l/r;
+						break;
+				}
+				node.val = v;
+				node.type = TYPE_VAL;
+				delete node.left;
+				delete node.right;
+			}else{
+				throw new Error('未完成');
+			}
+			if(tree.root.type==TYPE_VAL){
+				trace('【result】:'+tree.root.val);
+				nextFunc = null;
+			}else{
+				trace('【eval】',tree);
+			}
+			
+		}
+
+
+		function goNext(ignoredraw){
+			if(nextFunc){
+				nextFunc();
+				step++;
+				if(!ignoredraw){
+					drawData();
+				}
+				if(!nextFunc){
+					enableInput(true);
+				}
+			}
+		}
+
+		function goPrev(){
+			if(step){
+				var t = step-1;
+				init();
+				while(t!=step){
+					goNext(true);
+				}
+				drawData();
+			}	
+		}
+
+		function goReset(){
+			init();
+		}
+
+		function goAll(){
+			while(nextFunc){
+				goNext(true);
+			}
+			drawData();
+		}
+		
+
+		var handle;
+		function goAnime(){
+			var btn = geid('anime');
+			var buttons = geid('buttons').children;
+			if(btn.value=='取消'){
+				clearTimeout(handle);
+				resetBtn();
+				return;
+			}
+
+			function resetBtn(){
+				for(var i in buttons){
+					if(buttons[i]==btn){
+						btn.value = '自动';
+					}else{
+						buttons[i].disabled = null;
+					}
+				}
+			}
+
+			function play(){
+				goNext();
+				if(nextFunc){
+					handle = setTimeout(play,500);
+				}else{
+					resetBtn();
+				}
+			}
+			handle = setTimeout(play,500);
+			for(var i in buttons){
+				if(buttons[i]==btn){
+					btn.value = '取消';
+				}else{
+					buttons[i].disabled = 'disabled';
+				}
+			}
+		}
+
+
+
+
+
+
+		
+		var graphNodes;
+		var graphNodesP;
+		var canvasWidth;
+
+		function getNodeHeight(node){
+			var height = 0;
+			while(tree.root!=node){
+				height++;
+				node = node.parent;
+			}
+			return height;
+		}
+
+		function getNodeXY(node){
+			if(graphNodes.indexOf(node)<0){
+				var pXY = graphNodesP[graphNodes.indexOf(node.parent)];
+				var h = getNodeHeight(node);
+				var w = Math.max(50,canvasWidth/Math.pow(2,h));
+				var x = pXY[0];
+				if(node==node.parent.left){
+					x -= w/2;
+				}else if(node==node.parent.right){
+					x += w/2;
+				}else{
+					if(node.parent.params.length!=1){
+						var pw = w/(node.parent.params.length-1);
+						x = x-w/2+node.parent.params.indexOf(node)*pw;	
+					}
+				}
+				graphNodes.push(node);
+				graphNodesP.push([x,pXY[1]+50]);
+			}
+			return graphNodesP[graphNodes.indexOf(node)];
+		}
+
+
+		function drawData(){
+			geid('canvas').innerHTML='';
+			
+			canvasWidth = parseInt(geid('canvas').style.width.slice(0,-2));
+			if(!tree.root){
+				return;
+			}
+			graphNodes = [tree.root];
+			graphNodesP = [[canvasWidth/2,30]];
+
+			drawLines(tree.root);
+			drawNodes(tree.root);
+		}
+
+		function drawNodes(node){
+			var p = getNodeXY(node);
+			var text = node.val;
+			var color = null;
+			if(node.type==TYPE_FUNC_OPEN&&node.val==null){
+				text = '(';
+			}else if(node.type==TYPE_FUNC_CLOSE&&node.val==null){
+				text = '()';
+			}
+			if(node.type==TYPE_FUNC_OPEN){
+				color = '800000';
+			}
+			drawPoint(p,text,color);
+			if(node.left){
+				drawNodes(node.left);
+			}
+			if(node.right){
+				drawNodes(node.right);
+			}
+			if(node.params){
+				for(var i in node.params){
+					drawNodes(node.params[i]);
+				}
+			}			
+		}
+
+		function drawLines(node){
+			var p = getNodeXY(node);
+			var p2;
+			if(node.left){
+				p2 = getNodeXY(node.left);
+				drawLine(p,p2);
+				drawLines(node.left);
+			}
+			if(node.right){
+				p2 = getNodeXY(node.right);
+				drawLine(p,p2);
+				drawLines(node.right);
+			}
+			if(node.params){
+				for(var i in node.params){
+					p2 = getNodeXY(node.params[i]);
+					drawLine(p,p2);
+					drawLines(node.params[i]);
+				}
+			}
+		}
+
+
+		function trace(){
+			var s = [];
+			for(var i = 0;i<arguments.length;i++){
+				s.push(JSON.stringify(clone(arguments[i])));
+			}
+			geid('output').value=s.join(',')+'\n'+geid('output').value;
+		}
+
+		function clear(){
+			if(geid('output')){
+				geid('output').value='';
+			}
+			
+		}
+
+		function clone(obj){
+			if(obj == null || typeof(obj) != 'object')
+				return obj;
+
+			var temp = obj.constructor();
+			for(var key in obj){
+				if(key!='parent'){
+					temp[key] = clone(obj[key]);
+				}
+				
+			}
+				
+			return temp;
+		}
+
+		function setInput(text){
+			geid('input').value = text;
+		}
+
+		function getInput(){
+			return geid('input').value;
+		}
+
+		function enableInput(b){
+			geid('input').disabled = b?null:'disabled';
+		}
+
+		function geid(id){
+			return document.getElementById(id);
+		}
+
+
+		function drawPoint(p,text,color){
+			var div = document.createElement('div');
+			div.className = 'circle';
+			div.style.top = (p[1]-25+getElementTop(geid('canvas')))+'px';
+			div.style.left = (p[0]-25+getElementLeft(geid('canvas')))+'px';
+			if(color){
+				div.style.backgroundColor = '#'+color;
+			}
+			div.innerText = text;
+			geid('canvas').appendChild(div);
+		}
+		function drawLine(p1,p2){
+			var x1 = p1[0];
+			var y1 = p1[1];
+			var x2 = p2[0];
+			var y2 = p2[1];
+			var div = document.createElement('div');
+			div.className = 'line';
+			div.style.top = (y1+getElementTop(geid('canvas')))+'px';
+			div.style.left = (x1+getElementLeft(geid('canvas')))+'px';
+			var deg = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+			div.style['-webkit-transform'] = 'rotate('+deg+'deg)';
+			div.style.width = Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1))+'px';
+			geid('canvas').appendChild(div);
+		}
+
+		window.onload = function(){
+			init();
+		}
+
+		function getElementLeft(element){
+			var actualLeft = element.offsetLeft;
+			var current = element.offsetParent;
+			while (current !== null){
+				actualLeft += current.offsetLeft;
+				current = current.offsetParent;
+			}
+			return actualLeft;
+		}
+		function getElementTop(element){
+			var actualTop = element.offsetTop;
+			var current = element.offsetParent;
+			while (current !== null){
+				actualTop += current.offsetTop;
+				current = current.offsetParent;
+			}
+			return actualTop;
+		}
+		
+    </script>
+<div style="width:770px;float:left;">
+	<INPUT type='text' style="width:100%;" id="input"></INPUT><br/>
+	<TEXTAREA style="width:100%;height:400px;" id="output"></TEXTAREA>
+	<br/>
+	<span id='buttons'>
+	<INPUT TYPE="button" value ="上一步" onclick="goPrev();"></INPUT> 
+	<INPUT TYPE="button" value ="下一步" onclick="goNext();"></INPUT> 
+	<INPUT TYPE="button" value ="重来" onclick="goReset();"></INPUT> 
+	<INPUT TYPE="button" value ="计算" onclick="goAll();"></INPUT>
+	<INPUT TYPE="button" value ="自动" onclick="goAnime();" id='anime'></INPUT>
+	</span>
+</div>
+
+<div style="float:right;width:700px;height:400px;background-color:#f4f480;" id='canvas'>
+</div>
+	
+
+</body>
+
+</html>
